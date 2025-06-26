@@ -22,6 +22,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use std::time::Duration;
+use std::io::Write;
 
 #[macro_use]
 extern crate lazy_static;
@@ -55,11 +56,17 @@ fn main() {
     cpu.reset();
     cpu.register_pc = 0xC000;
 
-    //let mut screen_state = [0 as u8; (WIDTH * 3 * HEIGHT) as usize];
+    let mut screen_state = [0 as u8; (WIDTH * 3 * HEIGHT) as usize];
     //let mut rng = rand::thread_rng();
 
     cpu.run_with_callback(move |cpu| {
-        println!("{}", trace::trace(cpu));
+        // Open the file in append mode, or create it if it doesn't exist
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("trace_log.txt")
+            .unwrap();
+        writeln!(file, "{}", trace::trace(cpu)).unwrap();
         /*handle_user_input(cpu, &mut event_pump);
         cpu.mem_write(0xFE, rng.gen_range(1..16));
 
