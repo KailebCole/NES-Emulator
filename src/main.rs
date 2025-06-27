@@ -48,25 +48,25 @@ fn main() {
     let mut texture = creator.create_texture_target(PixelFormatEnum::RGB24, WIDTH, HEIGHT).unwrap();
 
     // Load Game
-    let bytes: Vec<u8> = std::fs::read("nestest.nes").unwrap();
+    let bytes: Vec<u8> = std::fs::read("TESTS/07.nes").unwrap();
+    // 7: 9C SYA, 9E SXA Unofficial
     let rom = rom::Rom::new(&bytes).unwrap();
 
     let bus = bus::Bus::new(rom);
     let mut cpu = cpu::CPU::new(bus);
     cpu.reset();
-    cpu.register_pc = 0xC000;
 
-    let mut screen_state = [0 as u8; (WIDTH * 3 * HEIGHT) as usize];
+    //let mut screen_state = [0 as u8; (WIDTH * 3 * HEIGHT) as usize];
     //let mut rng = rand::thread_rng();
 
     cpu.run_with_callback(move |cpu| {
         // Open the file in append mode, or create it if it doesn't exist
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("log.txt")
-            .unwrap();
-        writeln!(file, "{}", trace::trace(cpu)).unwrap();
+        // let mut file = std::fs::OpenOptions::new()
+        //     .create(true)
+        //     .append(true)
+        //     .open("log.txt")
+        //     .unwrap();
+        // writeln!(file, "{}", trace::trace(cpu)).unwrap();
 
         /*handle_user_input(cpu, &mut event_pump);
         cpu.mem_write(0xFE, rng.gen_range(1..16));

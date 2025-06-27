@@ -30,6 +30,7 @@ pub struct CPU {
     pub register_pc: u16,
     pub flags: Flags,
     pub bus: bus::Bus,
+    instructions_executed: u128,
 }
 
 #[derive(Clone)]
@@ -113,6 +114,7 @@ impl CPU {
             register_pc: 0,
             flags: Flags::new(),
             bus: bus,
+            instructions_executed: 0,
         }
     }
 
@@ -131,6 +133,7 @@ impl CPU {
         self.register_y = 0;
         self.register_sp = STACK_RESET;
         self.flags.bits = 0x24;
+        self.instructions_executed = 0;
 
         self.register_pc = self.mem_read_16(0xFFFC)
     }
@@ -145,6 +148,13 @@ impl CPU {
 
         loop {
             callback(self);
+
+            // instruction limit safeguard
+            self.instructions_executed += 1;
+            if self.instructions_executed > 5_000_000 {
+                println!("Instruction limit reached.");
+                std::process::exit(1);
+            }
 
             let code = self.mem_read(self.register_pc);
             self.register_pc += 1;

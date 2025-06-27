@@ -94,6 +94,42 @@ impl Mem for Bus {
                 let _mirror_down_addr = addr & 0b00100000_00000111;
                 todo!("PPU Is not supported yet")
             }*/
+            0x6000 => {
+                match data {
+                    0x00 => {
+                        println!("blargg test PASSED!");
+                        std::process::exit(0); // graceful exit
+                    }
+                    0x80 => {
+                        println!("Running")
+                    }
+                    fail_code => {
+                        println!("blargg test FAILED with code {:02X}", fail_code);
+                        // Optionally read $6004..$60XX and print failure message
+                        let mut msg = Vec::new();
+                        let mut addr = 0x6004;
+                        loop {
+                            let byte = self.mem_read(addr);
+                            if byte == 0 || addr > 0x60FF { break; }
+                            msg.push(byte);
+                            addr += 1;
+                        }
+                        if let Ok(message) = String::from_utf8(msg) {
+                            println!("Failure reason: {}", message);
+                        }
+                        std::process::exit(1);
+                    }
+                }
+            }
+            0x6004..=0x7000 => {
+                // Only print printable ASCII characters, skip nulls and control chars
+                if data.is_ascii_graphic() || data == b' ' {
+                    print!("{}", data as char);
+                } else if data == b'\n' || data == b'\r' {
+                    print!("{}", data as char);
+                }
+                // Do not print \x00 or other non-printable bytes
+            }
             0x8000..=0xFFFF => panic!("Attmempt to write to cartridge ROM Space"),
             _ => {
                 //println!("Ignoring memory access at {}", addr);
