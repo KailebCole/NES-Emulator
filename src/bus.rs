@@ -78,6 +78,7 @@ impl Mem for Bus {
 
             // All other regions (PPU registers, expansion ROM)
             _ => {
+                // Return 0xFF instead of 0 to match expected default read behavior
                 return 0xFF;
             }
         }
@@ -93,14 +94,10 @@ impl Mem for Bus {
                 let _mirror_down_addr = addr & 0b00100000_00000111;
                 todo!("PPU Is not supported yet")
             }*/
-            0x8000..=0xFFFF => {
-                // Cartridge space: treat writes as mapper register writes
-                // For now, just stub them out
-                // In a real emulator, you'd pass (addr, data) to your Mapper object
-                // e.g., self.mapper.write(addr, data);
-                // TODO: Complete Mapper Regions
+            0x8000..=0xFFFF => panic!("Attmempt to write to cartridge ROM Space"),
+            _ => {
+                //println!("Ignoring memory access at {}", addr);
             }
-            _ => {}
         }
     }
 }

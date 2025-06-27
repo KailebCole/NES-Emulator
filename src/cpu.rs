@@ -30,8 +30,6 @@ pub struct CPU {
     pub register_pc: u16,
     pub flags: Flags,
     pub bus: bus::Bus,
-
-    
 }
 
 #[derive(Clone)]
@@ -636,8 +634,8 @@ impl CPU {
 
     // Jump to the subroutine and store current address on the stack
     fn jsr(&mut self) {
-        self.stack_push_16(self.register_pc + 2);
-        let addr = self.mem_read_16(self.register_pc + 1);
+        self.stack_push_16(self.register_pc + 1);
+        let addr = self.mem_read_16(self.register_pc);
         self.register_pc = addr;
     }
     
