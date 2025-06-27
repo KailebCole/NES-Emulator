@@ -426,6 +426,8 @@ impl CPU {
     /*  Opcodes  */
     /*           */
 
+    // TODO: FIX FLAGS
+
     // Add value to register A with the carry bit
     fn adc(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_address(mode);
