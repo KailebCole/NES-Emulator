@@ -30,13 +30,15 @@ pub struct CPU {
     pub register_pc: u16,
     pub flags: Flags,
     pub bus: bus::Bus,
+
+    
 }
 
 #[derive(Clone)]
 pub struct Flags {
     pub bits: u8
     /* 
-    N V _ B D I Z C
+    N V U B D I Z C
     | |   | | | | +---- Carry
     | |   | | | +------ Zero
     | |   | | +-------- Interrupt Disable
@@ -130,7 +132,7 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.register_sp = STACK_RESET;
-        self.flags.bits = 0;
+        self.flags.bits = 0x24;
 
         self.register_pc = self.mem_read_16(0xFFFC)
     }
@@ -140,7 +142,7 @@ impl CPU {
     }
 
     // Decode and execute program file
-    pub fn run_with_callback<F>(&mut self, mut callback: F) where F: FnMut(&mut CPU),{
+    pub fn run_with_callback<F>(&mut self, mut callback: F) where F: FnMut(&mut CPU), {
         let ref opcodes: HashMap<u8, &'static opcodes::OPCode> = *opcodes::OPCodes_MAP;
 
         loop {
@@ -634,8 +636,8 @@ impl CPU {
 
     // Jump to the subroutine and store current address on the stack
     fn jsr(&mut self) {
-        self.stack_push_16(self.register_pc + 1);
-        let addr = self.mem_read_16(self.register_pc);
+        self.stack_push_16(self.register_pc + 2);
+        let addr = self.mem_read_16(self.register_pc + 1);
         self.register_pc = addr;
     }
     
@@ -714,7 +716,7 @@ impl CPU {
     fn php(&mut self) {
         let mut flags = self.flags.clone();
         flags.set_bflag(true);
-        flags.set_b2flag(true);
+        flags.set_uflag(true);
         self.stack_push(flags.bits);
     }
 
@@ -729,7 +731,7 @@ impl CPU {
     fn plp(&mut self) {
         self.flags.bits = self.stack_pop();
         self.flags.set_bflag(false);
-        self.flags.set_b2flag(false);
+        self.flags.set_uflag(true);
     }
 
     // Rotate A Register bits to the left
@@ -798,7 +800,7 @@ impl CPU {
     fn rti(&mut self) {
         self.flags.bits = self.stack_pop();
         self.flags.set_bflag(false);
-        self.flags.set_b2flag(true);
+        self.flags.set_uflag(true);
 
         self.register_pc = self.stack_pop_16()
     }
@@ -1085,7 +1087,7 @@ impl CPU {
 
 impl Flags {
     fn new() -> Self {
-        Flags { bits: 0 }
+        Flags { bits: 0x24 }
     }
 
     fn set_bit(&mut self, bit: u8, value: bool) {
@@ -1102,7 +1104,7 @@ impl Flags {
     fn int(&self) -> bool       { self.get_bit(2) }
     fn decimal(&self) -> bool   { self.get_bit(3) }
     fn bflag(&self) -> bool     { self.get_bit(4) }
-    fn b2flag(&self) -> bool    { self.get_bit(5) }
+    fn uflag(&self) -> bool    { self.get_bit(5) }
     fn overflow(&self) -> bool  { self.get_bit(6) }
     fn negative(&self) -> bool  { self.get_bit(7) }
 
@@ -1111,7 +1113,7 @@ impl Flags {
     fn set_int(&mut self, value: bool)          { self.set_bit(2, value); }
     fn set_decimal(&mut self, value: bool)      { self.set_bit(3, value); }
     fn set_bflag(&mut self, value: bool)        { self.set_bit(4, value); }
-    fn set_b2flag(&mut self, value: bool)       { self.set_bit(5, value); }
+    fn set_uflag(&mut self, value: bool)       { self.set_bit(5, value); }
     fn set_overflow(&mut self, value: bool)     { self.set_bit(6, value); }
     fn set_negative(&mut self, value: bool)     { self.set_bit(7, value); }
 }

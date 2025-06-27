@@ -64,9 +64,17 @@ fn main() {
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open("trace_log.txt")
+            .open("log.txt")
             .unwrap();
         writeln!(file, "{}", trace::trace(cpu)).unwrap();
+
+        if cpu.register_pc == 0xC66E {
+            println!("Test completed: PC reached 0xC66E, exiting emulation.");
+            return false;
+        }
+
+        true
+
         /*handle_user_input(cpu, &mut event_pump);
         cpu.mem_write(0xFE, rng.gen_range(1..16));
 

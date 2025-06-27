@@ -67,14 +67,18 @@ impl Mem for Bus {
                 let mirror_down_addr = addr & 0b00000111_11111111;
                 return self.cpu_vram[mirror_down_addr as usize]
             }
-            /*PPU_REGISTERS ..= PPU_REGISTERS_MIRRORS_END => {
-                let _mirror_down_addr = addr & 0b00100000_00000111;
-                todo!("PPU Is not supported yet")
-            }*/
+            // APU and I/O Registers ($4000–$401F)
+            0x4000..=0x401F => {
+                // Return 0xFF for unimplemented APU/I/O reads
+                return 0xFF;
+            }
+
+            // ROM reads ($8000–$FFFF)
             0x8000..=0xFFFF => self.read_prom(addr),
+
+            // All other regions (PPU registers, expansion ROM)
             _ => {
-                //println!("Ignoring memory access at {}", addr);
-                return 0;
+                return 0xFF;
             }
         }
     }
@@ -89,10 +93,14 @@ impl Mem for Bus {
                 let _mirror_down_addr = addr & 0b00100000_00000111;
                 todo!("PPU Is not supported yet")
             }*/
-            0x8000..=0xFFFF => panic!("Attmempt to write to cartridge ROM Space"),
-            _ => {
-                //println!("Ignoring memory access at {}", addr);
+            0x8000..=0xFFFF => {
+                // Cartridge space: treat writes as mapper register writes
+                // For now, just stub them out
+                // In a real emulator, you'd pass (addr, data) to your Mapper object
+                // e.g., self.mapper.write(addr, data);
+                // TODO: Complete Mapper Regions
             }
+            _ => {}
         }
     }
 }
