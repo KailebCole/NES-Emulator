@@ -30,7 +30,7 @@ pub struct CPU {
     pub register_pc: u16,
     pub flags: Flags,
     pub bus: bus::Bus,
-    instructions_executed: u128,
+    pub cycles: u64,
 }
 
 #[derive(Clone)]
@@ -114,7 +114,7 @@ impl CPU {
             register_pc: 0,
             flags: Flags::new(),
             bus: bus,
-            instructions_executed: 0,
+            cycles: 0,
         }
     }
 
@@ -133,7 +133,7 @@ impl CPU {
         self.register_y = 0;
         self.register_sp = STACK_RESET;
         self.flags.bits = 0x24;
-        self.instructions_executed = 0;
+        self.cycles = 0;
 
         self.register_pc = self.mem_read_16(0xFFFC)
     }
@@ -149,19 +149,15 @@ impl CPU {
         loop {
             callback(self);
 
-            // instruction limit safeguard
-            self.instructions_executed += 1;
-            if self.instructions_executed > 5_000_000 {
-                println!("Instruction limit reached.");
-                std::process::exit(1);
-            }
-
+            // FETCH
             let code = self.mem_read(self.register_pc);
             self.register_pc += 1;
             let program_counter_state = self.register_pc;
 
+            // DECODE
             let opcode = opcodes.get(&code).expect(&format!("OPCode {:x} is not recognized", code));
-            
+        
+            // EXECUTE
             // Check the opcode with each opcode case
             match code {
                 /* RET */ 0x00 =>                                                   return,
@@ -260,6 +256,16 @@ impl CPU {
             if program_counter_state == self.register_pc {
                 self.register_pc += (opcode.len - 1) as u16;
             }
+
+            // Update the cycles
+            self.cycles += opcode.cycles as u64;
+
+            // Step through PPU 3 times per CPU Cycle
+            for _ in 0..opcode.cycles {
+                self.bus.ppu.step();
+                self.bus.ppu.step();
+                self.bus.ppu.step();
+            }
         }
     }
 
@@ -268,6 +274,13 @@ impl CPU {
         self.load(program);
         self.reset();
         self.run();
+    }
+
+    fn add_cycle(&mut self) {
+        self.cycles += 1;
+        self.bus.ppu.step();
+        self.bus.ppu.step();
+        self.bus.ppu.step();
     }
 
     /*                       */
@@ -327,7 +340,7 @@ impl CPU {
 
     // Compare register with a byte of memory
     fn compare(&mut self, mode: &AddressingMode, compare_with: u8) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let data = self.mem_read(addr);
 
         self.flags.set_carry(compare_with >= data);
@@ -335,7 +348,7 @@ impl CPU {
     }
 
     // Get the the address of operands
-    pub fn get_absolute_address(&self, mode: &AddressingMode, addr: u16) -> u16 {
+    pub fn get_absolute_address(&mut self, mode: &AddressingMode, addr: u16, cycle_page: bool) -> u16 {
         match mode {
             AddressingMode::ZeroPage => self.mem_read(addr) as u16,
 
@@ -355,11 +368,13 @@ impl CPU {
             AddressingMode::AbsoluteX => {
                 let base = self.mem_read_16(addr);
                 let addr = base.wrapping_add(self.register_x as u16);
+                if cycle_page && (base & 0xFF00) != (addr & 0xFF00) { self.add_cycle(); }
                 addr
             }
             AddressingMode::AbsoluteY => {
                 let base = self.mem_read_16(addr);
                 let addr = base.wrapping_add(self.register_y as u16);
+                if cycle_page && (base & 0xFF00) != (addr & 0xFF00) { self.add_cycle(); }
                 addr
             }
 
@@ -376,8 +391,9 @@ impl CPU {
 
                 let lo = self.mem_read(base as u16);
                 let hi = self.mem_read((base as u8).wrapping_add(1) as u16);
-                let deref_base = (hi as u16) << 8 | (lo as u16);
+                let deref_base = (hi as u16) << 8 | lo as u16;
                 let deref = deref_base.wrapping_add(self.register_y as u16);
+                if cycle_page && (deref_base & 0xFF00) != (deref & 0xFF00) { self.add_cycle(); }
                 deref
             }
 
@@ -387,10 +403,10 @@ impl CPU {
         }
     }
 
-    fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
+    fn get_operand_address(&mut self, mode: &AddressingMode, cycle_page: bool) -> u16 {
         match mode {
             AddressingMode::Immediate => self.register_pc,
-            _ => self.get_absolute_address(mode, self.register_pc),
+            _ => self.get_absolute_address(mode, self.register_pc, cycle_page),
         }
     }
 
@@ -440,7 +456,7 @@ impl CPU {
 
     // Add value to register A with the carry bit
     fn adc(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let value = self.mem_read(addr);
 
         self.add_to_reg_a(value);
@@ -448,7 +464,7 @@ impl CPU {
 
     // Logical AND performed bit by bit on the A Register using a byte of memory
     fn and(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let value = self.mem_read(addr);
         self.register_a = self.register_a & value;
 
@@ -467,7 +483,7 @@ impl CPU {
 
     // Shift all bits of the Memory contents one bit left
     fn asl(&mut self, mode: &AddressingMode) -> u8 {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let mut data = self.mem_read(addr);
         self.flags.set_carry(data >> 7 == 1);
 
@@ -494,7 +510,7 @@ impl CPU {
 
     // Test if one or more bits are set at a memory location
     fn bit(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr);
         let and = self.register_a & data;
 
@@ -573,7 +589,7 @@ impl CPU {
 
     // Decrement the value of a byte in memory
     fn dec(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr).wrapping_sub(1);
         self.mem_write(addr, data);
         self.update_flags(data)
@@ -593,7 +609,7 @@ impl CPU {
 
     // Exclusive OR performed bit by bit on the A register using a byte of memory
     fn eor(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let data = self.mem_read(addr);
 
         self.register_a = self.register_a ^ data;
@@ -602,7 +618,7 @@ impl CPU {
 
     // Increment the value stored at a specific memory location
     fn inc(&mut self, mode: &AddressingMode) -> u8 {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr).wrapping_add(1);
         self.mem_write(addr, data);
         self.update_flags(data);
@@ -651,7 +667,7 @@ impl CPU {
     
     // Load the A register using a byte of memory
     fn lda(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let value = self.mem_read(addr);
 
         self.register_a = value;
@@ -660,7 +676,7 @@ impl CPU {
 
     // Load the X Register using a byte of memory
     fn ldx(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let value = self.mem_read(addr);
 
         self.register_x = value;
@@ -670,7 +686,7 @@ impl CPU {
 
     // Load the Y Register using a byte of memory
     fn ldy(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let value = self.mem_read(addr);
 
         self.register_y = value;
@@ -690,7 +706,7 @@ impl CPU {
 
     // Logical Shift bits right one place
     fn lsr(&mut self, mode: &AddressingMode) -> u8 {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let mut data = self.mem_read(addr);
         self.flags.set_carry(data & 1 == 1);
 
@@ -708,7 +724,7 @@ impl CPU {
 
     // Logical OR performed bit by bit on the A Register using a byte of memory
     fn ora(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let data = self.mem_read(addr);
 
         self.register_a = self.register_a | data;
@@ -757,7 +773,7 @@ impl CPU {
 
     // Rotate bits to the left
     fn rol(&mut self, mode: &AddressingMode) -> u8{
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let mut data = self.mem_read(addr);
         let old_carry = self.flags.carry() as u8;
 
@@ -788,7 +804,7 @@ impl CPU {
 
     // Rotate bits to the right
     fn ror(&mut self, mode: &AddressingMode) -> u8 {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let mut data = self.mem_read(addr);
         let old_carry = self.flags.carry();
 
@@ -820,7 +836,7 @@ impl CPU {
 
     // Add value to register A with the carry bit
     fn sbc(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(&mode);
+        let addr = self.get_operand_address(&mode, true);
         let data = self.mem_read(addr);
         
         self.add_to_reg_a(((data as i8).wrapping_neg().wrapping_sub(1)) as u8);
@@ -843,19 +859,19 @@ impl CPU {
 
     // Copy value from A to memory
     fn sta(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         self.mem_write(addr, self.register_a);
     }
 
     // Store X Register at address
     fn stx(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         self.mem_write(addr, self.register_x);
     }
 
     // Store Y Register at address
     fn sty(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         self.mem_write(addr, self.register_y);
     }
 
@@ -915,7 +931,7 @@ impl CPU {
     
     // Memory byte AND A then Shift Right A Register Bits
     fn ualr(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr);
         self.and_with_reg_a(data);
         self.lsr_a();
@@ -923,7 +939,7 @@ impl CPU {
     
     // Memory Byte AND A then set carry to negative value
     fn uanc(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr);
         self.and_with_reg_a(data);
         self.flags.set_carry(self.flags.negative());
@@ -931,7 +947,7 @@ impl CPU {
     
     // Memory Byte AND A then ROR with special flag setting
     fn uarr(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr);
         self.and_with_reg_a(data);
 
@@ -947,7 +963,7 @@ impl CPU {
     
     // Set X Register to (X & A) - Memory Byte
     fn uaxs(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr);
 
         let x_and_a = self.register_a & self.register_x;
@@ -960,7 +976,7 @@ impl CPU {
     
     // Decrement Address then Compare with Address
     fn udcp(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let mut data = self.mem_read(addr);
 
         data = data.wrapping_sub(1);
@@ -977,7 +993,7 @@ impl CPU {
     
     // Memory Byte & Stack Pointer, save to A, X, SP
     fn ulas(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let mut data = self.mem_read(addr);
 
         data = data & self.register_sp;
@@ -989,7 +1005,7 @@ impl CPU {
     
     // Load A then Load X
     fn ulax(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, true);
         let data = self.mem_read(addr);
         self.register_a = data;
         self.register_x = self.register_a;
@@ -1009,7 +1025,7 @@ impl CPU {
     
     // Read Address, Do Nothing
     fn unop_read(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let _data = self.mem_read(addr);
     }
     
@@ -1028,13 +1044,13 @@ impl CPU {
     // Store A AND X into addr
     fn usax(&mut self, mode: &AddressingMode) {
         let data = self.register_a & self.register_x;
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         self.mem_write(addr, data);
     }
     
     // Subtract from Reg A
     fn usbc(&mut self, mode: &AddressingMode) {
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr);
         self.sub_from_reg_a(data);
     }
@@ -1087,7 +1103,7 @@ impl CPU {
         self.register_a = self.register_x;
         self.update_flags(self.register_a);
 
-        let addr = self.get_operand_address(mode);
+        let addr = self.get_operand_address(mode, false);
         let data = self.mem_read(addr);
         self.and_with_reg_a(data);
     }
@@ -1112,7 +1128,7 @@ impl Flags {
     fn int(&self) -> bool       { self.get_bit(2) }
     fn decimal(&self) -> bool   { self.get_bit(3) }
     fn bflag(&self) -> bool     { self.get_bit(4) }
-    fn uflag(&self) -> bool    { self.get_bit(5) }
+    fn uflag(&self) -> bool     { self.get_bit(5) }
     fn overflow(&self) -> bool  { self.get_bit(6) }
     fn negative(&self) -> bool  { self.get_bit(7) }
 
@@ -1121,7 +1137,7 @@ impl Flags {
     fn set_int(&mut self, value: bool)          { self.set_bit(2, value); }
     fn set_decimal(&mut self, value: bool)      { self.set_bit(3, value); }
     fn set_bflag(&mut self, value: bool)        { self.set_bit(4, value); }
-    fn set_uflag(&mut self, value: bool)       { self.set_bit(5, value); }
+    fn set_uflag(&mut self, value: bool)        { self.set_bit(5, value); }
     fn set_overflow(&mut self, value: bool)     { self.set_bit(6, value); }
     fn set_negative(&mut self, value: bool)     { self.set_bit(7, value); }
 }

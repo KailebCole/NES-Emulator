@@ -48,7 +48,7 @@ fn main() {
     let mut texture = creator.create_texture_target(PixelFormatEnum::RGB24, WIDTH, HEIGHT).unwrap();
 
     // Load Game
-    let bytes: Vec<u8> = std::fs::read("TESTS/07.nes").unwrap();
+    let bytes: Vec<u8> = std::fs::read("nestest.nes").unwrap();
 
     let rom = rom::Rom::new(&bytes).unwrap();
 
