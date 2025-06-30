@@ -118,14 +118,6 @@ impl CPU {
         }
     }
 
-    // Load program into memory starting at PROM location 0x8000
-    pub fn load(&mut self, program: Vec<u8>) {
-        for i in 0..(program.len() as u16) {
-            self.mem_write(0x0600 + 1, program[i as usize]);
-        }
-        self.mem_write_16(0xFFFC, 0x0600);
-    }
-
     // Reset the Emulator to initial state and reset address
     pub fn reset(&mut self) {
         self.register_a = 0;
@@ -138,147 +130,127 @@ impl CPU {
         self.register_pc = self.mem_read_16(0xFFFC)
     }
 
-    pub fn run(&mut self) {
-        self.run_with_callback(|_| {});
-    }
-
     // Decode and execute program file
-    pub fn run_with_callback<F>(&mut self, mut callback: F) where F: FnMut(&mut CPU), {
+    pub fn step(&mut self) {
         let ref opcodes: HashMap<u8, &'static opcodes::OPCode> = *opcodes::OPCodes_MAP;
 
-        loop {
-            callback(self);
+        // FETCH
+        let code = self.mem_read(self.register_pc);
+        self.register_pc += 1;
+        let pc_before = self.register_pc;
 
-            // FETCH
-            let code = self.mem_read(self.register_pc);
-            self.register_pc += 1;
-            let program_counter_state = self.register_pc;
+        // DECODE
+        let opcode = opcodes.get(&code).expect(&format!("OPCode {:x} is not recognized", code));
+    
+        // EXECUTE
+        // Check the opcode with each opcode case
+        match code {
+            /* RET */ 0x00 =>                                                   return,
+            /* ADC */ 0x69 | 0x65 | 0x75 | 0x6d | 0x7d | 0x79 | 0x61 | 0x71 =>  {self.adc(&opcode.mode)},
+            /* AND */ 0x29 | 0x25 | 0x35 | 0x2d | 0x3d | 0x39 | 0x21 | 0x31 =>  {self.and(&opcode.mode)},
+            /* ASL */ 0x0a =>                                                   {self.asl_a()},
+            /* ASL */ 0x06 | 0x16 | 0x0e | 0x1e =>                              {self.asl(&opcode.mode);},
+            /* BCC */ 0x90 =>                                                   {self.bcc()},
+            /* BCS */ 0xb0 =>                                                   {self.bcs()},
+            /* BEQ */ 0xf0 =>                                                   {self.beq()},
+            /* BIT */ 0x24 | 0x2c =>                                            {self.bit(&opcode.mode)},
+            /* BMI */ 0x30 =>                                                   {self.bmi()},
+            /* BNE */ 0xd0 =>                                                   {self.bne()},
+            /* BPL */ 0x10 =>                                                   {self.bpl()},
+            /* BVC */ 0x50 =>                                                   {self.bvc()},
+            /* BVS */ 0x70 =>                                                   {self.bvs()},
+            /* CLC */ 0x18 =>                                                   {self.clc()},
+            /* CLD */ 0xd8 =>                                                   {self.cld()},
+            /* CLI */ 0x58 =>                                                   {self.cli()},
+            /* CLV */ 0xb8 =>                                                   {self.clv()},
+            /* CMP */ 0xc9 | 0xc5 | 0xd5 | 0xcd | 0xdd | 0xd9 | 0xc1 | 0xd1 =>  {self.cmp(&opcode.mode)},
+            /* CPX */ 0xe0 | 0xe4 | 0xec =>                                     {self.cpx(&opcode.mode)},
+            /* CPY */ 0xc0 | 0xc4 | 0xcc =>                                     {self.cpy(&opcode.mode)},
+            /* DEC */ 0xc6 | 0xd6 | 0xce | 0xde =>                              {self.dec(&opcode.mode)},
+            /* DEX */ 0xca =>                                                   {self.dex()},
+            /* DEY */ 0x88 =>                                                   {self.dey()},
+            /* EOR */ 0x49 | 0x45 | 0x55 | 0x4d | 0x5d | 0x59 | 0x41 | 0x51 =>  {self.eor(&opcode.mode)},
+            /* INC */ 0xe6 | 0xf6 | 0xee | 0xfe =>                              {self.inc(&opcode.mode);},
+            /* INX */ 0xe8 =>                                                   {self.inx()},
+            /* INY */ 0xc8 =>                                                   {self.iny()},
+            /* JMP */ 0x4c =>                                                   {self.jmp_abs()},
+            /* JMP */ 0x6c =>                                                   {self.jmp_ind()},
+            /* JSR */ 0x20 =>                                                   {self.jsr()},
+            /* LDA */ 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 =>  {self.lda(&opcode.mode)},
+            /* LDX */ 0xa2 | 0xa6 | 0xb6 | 0xae | 0xbe =>                       {self.ldx(&opcode.mode)},
+            /* LDY */ 0xa0 | 0xa4 | 0xb4 | 0xac | 0xbc =>                       {self.ldy(&opcode.mode)},
+            /* LSR */ 0x4a =>                                                   {self.lsr_a()},
+            /* LSR */ 0x46 | 0x56 | 0x4e | 0x5e =>                              {self.lsr(&opcode.mode);},
+            /* NOP */ 0xea =>                                                   {self.nop()},
+            /* ORA */ 0x09 | 0x05 | 0x15 | 0x0d | 0x1d | 0x19 | 0x01 | 0x11 =>  {self.ora(&opcode.mode)},
+            /* PHA */ 0x48 =>                                                   {self.pha()},
+            /* PHP */ 0x08 =>                                                   {self.php()},
+            /* PLA */ 0x68 =>                                                   {self.pla()},
+            /* PLP */ 0x28 =>                                                   {self.plp()},
+            /* ROL */ 0x2a =>                                                   {self.rol_a()},
+            /* ROL */ 0x26 | 0x36 | 0x2e | 0x3e =>                              {self.rol(&opcode.mode);},
+            /* ROR */ 0x6a =>                                                   {self.ror_a()},
+            /* ROR */ 0x66 | 0x76 | 0x6e | 0x7e =>                              {self.ror(&opcode.mode);},
+            /* RTI */ 0x40 =>                                                   {self.rti()},
+            /* RTS */ 0x60 =>                                                   {self.rts()},
+            /* SBC */ 0xe9 | 0xe5 | 0xf5 | 0xed | 0xfd | 0xf9 | 0xe1 | 0xf1 =>  {self.sbc(&opcode.mode)},
+            /* SEC */ 0x38 =>                                                   {self.sec()},
+            /* SED */ 0xf8 =>                                                   {self.sed()},
+            /* SEI */ 0x78 =>                                                   {self.sei()},
+            /* STA */ 0x85 | 0x95 | 0x8d | 0x9d | 0x99 | 0x81 | 0x91 =>         {self.sta(&opcode.mode)},
+            /* STX */ 0x86 | 0x96 | 0x8e =>                                     {self.stx(&opcode.mode)},
+            /* STY */ 0x84 | 0x94 | 0x8c =>                                     {self.sty(&opcode.mode)},
+            /* TAX */ 0xAA =>                                                   {self.tax()},
+            /* TAY */ 0xa8 =>                                                   {self.tay()},
+            /* TSX */ 0xba =>                                                   {self.tsx()},
+            /* TXA */ 0x8a =>                                                   {self.txa()},
+            /* TXS */ 0x9a =>                                                   {self.txs()},
+            /* TYA */ 0x98 =>                                                   {self.tya()},
 
-            // DECODE
-            let opcode = opcodes.get(&code).expect(&format!("OPCode {:x} is not recognized", code));
-        
-            // EXECUTE
-            // Check the opcode with each opcode case
-            match code {
-                /* RET */ 0x00 =>                                                   return,
-                /* ADC */ 0x69 | 0x65 | 0x75 | 0x6d | 0x7d | 0x79 | 0x61 | 0x71 =>  {self.adc(&opcode.mode)},
-                /* AND */ 0x29 | 0x25 | 0x35 | 0x2d | 0x3d | 0x39 | 0x21 | 0x31 =>  {self.and(&opcode.mode)},
-                /* ASL */ 0x0a =>                                                   {self.asl_a()},
-                /* ASL */ 0x06 | 0x16 | 0x0e | 0x1e =>                              {self.asl(&opcode.mode);},
-                /* BCC */ 0x90 =>                                                   {self.bcc()},
-                /* BCS */ 0xb0 =>                                                   {self.bcs()},
-                /* BEQ */ 0xf0 =>                                                   {self.beq()},
-                /* BIT */ 0x24 | 0x2c =>                                            {self.bit(&opcode.mode)},
-                /* BMI */ 0x30 =>                                                   {self.bmi()},
-                /* BNE */ 0xd0 =>                                                   {self.bne()},
-                /* BPL */ 0x10 =>                                                   {self.bpl()},
-                /* BVC */ 0x50 =>                                                   {self.bvc()},
-                /* BVS */ 0x70 =>                                                   {self.bvs()},
-                /* CLC */ 0x18 =>                                                   {self.clc()},
-                /* CLD */ 0xd8 =>                                                   {self.cld()},
-                /* CLI */ 0x58 =>                                                   {self.cli()},
-                /* CLV */ 0xb8 =>                                                   {self.clv()},
-                /* CMP */ 0xc9 | 0xc5 | 0xd5 | 0xcd | 0xdd | 0xd9 | 0xc1 | 0xd1 =>  {self.cmp(&opcode.mode)},
-                /* CPX */ 0xe0 | 0xe4 | 0xec =>                                     {self.cpx(&opcode.mode)},
-                /* CPY */ 0xc0 | 0xc4 | 0xcc =>                                     {self.cpy(&opcode.mode)},
-                /* DEC */ 0xc6 | 0xd6 | 0xce | 0xde =>                              {self.dec(&opcode.mode)},
-                /* DEX */ 0xca =>                                                   {self.dex()},
-                /* DEY */ 0x88 =>                                                   {self.dey()},
-                /* EOR */ 0x49 | 0x45 | 0x55 | 0x4d | 0x5d | 0x59 | 0x41 | 0x51 =>  {self.eor(&opcode.mode)},
-                /* INC */ 0xe6 | 0xf6 | 0xee | 0xfe =>                              {self.inc(&opcode.mode);},
-                /* INX */ 0xe8 =>                                                   {self.inx()},
-                /* INY */ 0xc8 =>                                                   {self.iny()},
-                /* JMP */ 0x4c =>                                                   {self.jmp_abs()},
-                /* JMP */ 0x6c =>                                                   {self.jmp_ind()},
-                /* JSR */ 0x20 =>                                                   {self.jsr()},
-                /* LDA */ 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 =>  {self.lda(&opcode.mode)},
-                /* LDX */ 0xa2 | 0xa6 | 0xb6 | 0xae | 0xbe =>                       {self.ldx(&opcode.mode)},
-                /* LDY */ 0xa0 | 0xa4 | 0xb4 | 0xac | 0xbc =>                       {self.ldy(&opcode.mode)},
-                /* LSR */ 0x4a =>                                                   {self.lsr_a()},
-                /* LSR */ 0x46 | 0x56 | 0x4e | 0x5e =>                              {self.lsr(&opcode.mode);},
-                /* NOP */ 0xea =>                                                   {self.nop()},
-                /* ORA */ 0x09 | 0x05 | 0x15 | 0x0d | 0x1d | 0x19 | 0x01 | 0x11 =>  {self.ora(&opcode.mode)},
-                /* PHA */ 0x48 =>                                                   {self.pha()},
-                /* PHP */ 0x08 =>                                                   {self.php()},
-                /* PLA */ 0x68 =>                                                   {self.pla()},
-                /* PLP */ 0x28 =>                                                   {self.plp()},
-                /* ROL */ 0x2a =>                                                   {self.rol_a()},
-                /* ROL */ 0x26 | 0x36 | 0x2e | 0x3e =>                              {self.rol(&opcode.mode);},
-                /* ROR */ 0x6a =>                                                   {self.ror_a()},
-                /* ROR */ 0x66 | 0x76 | 0x6e | 0x7e =>                              {self.ror(&opcode.mode);},
-                /* RTI */ 0x40 =>                                                   {self.rti()},
-                /* RTS */ 0x60 =>                                                   {self.rts()},
-                /* SBC */ 0xe9 | 0xe5 | 0xf5 | 0xed | 0xfd | 0xf9 | 0xe1 | 0xf1 =>  {self.sbc(&opcode.mode)},
-                /* SEC */ 0x38 =>                                                   {self.sec()},
-                /* SED */ 0xf8 =>                                                   {self.sed()},
-                /* SEI */ 0x78 =>                                                   {self.sei()},
-                /* STA */ 0x85 | 0x95 | 0x8d | 0x9d | 0x99 | 0x81 | 0x91 =>         {self.sta(&opcode.mode)},
-                /* STX */ 0x86 | 0x96 | 0x8e =>                                     {self.stx(&opcode.mode)},
-                /* STY */ 0x84 | 0x94 | 0x8c =>                                     {self.sty(&opcode.mode)},
-                /* TAX */ 0xAA =>                                                   {self.tax()},
-                /* TAY */ 0xa8 =>                                                   {self.tay()},
-                /* TSX */ 0xba =>                                                   {self.tsx()},
-                /* TXA */ 0x8a =>                                                   {self.txa()},
-                /* TXS */ 0x9a =>                                                   {self.txs()},
-                /* TYA */ 0x98 =>                                                   {self.tya()},
-
-                /* Unofficial */
-                /* AHX Absolute Y */ 0x9f =>                                        {self.uahx_ay()},
-                /* AHX  Indirect Y */ 0x93 =>                                       {self.uahx_iy()},
-                /* ALR */ 0x4b =>                                                   {self.ualr(&opcode.mode)},
-                /* ANC */ 0x0b | 0x2b =>                                            {self.uanc(&opcode.mode)},
-                /* ARR */ 0x6B =>                                                   {self.uarr(&opcode.mode)},
-                /* AXS */ 0xCB =>                                                   {self.uaxs(&opcode.mode)},
-                /* DCP */ 0xc7 | 0xd7 | 0xCF | 0xdF | 0xdb | 0xd3 | 0xc3 =>         {self.udcp(&opcode.mode)},
-                /* ISB */ 0xe7 | 0xf7 | 0xef | 0xff | 0xfb | 0xe3 | 0xf3 =>         {self.uisb(&opcode.mode)},
-                /* LAS */ 0xbb =>                                                   {self.ulas(&opcode.mode)},
-                /* LAX */ 0xa7 | 0xb7 | 0xaf | 0xbf | 0xa3 | 0xb3 =>                {self.ulax(&opcode.mode)},
-                /* LXA */ 0xab =>                                                   {self.ulxa(&opcode.mode)},
-                /* RLA */ 0x27 | 0x37 | 0x2F | 0x3F | 0x3b | 0x33 | 0x23 =>         {self.urla(&opcode.mode)},
-                /* RRA */ 0x67 | 0x77 | 0x6f | 0x7f | 0x7b | 0x63 | 0x73 =>         {self.urra(&opcode.mode)},
-                /* SAX */ 0x87 | 0x97 | 0x8f | 0x83 =>                              {self.usax(&opcode.mode)},
-                /* SBC */ 0xeb =>                                                   {self.usbc(&opcode.mode)},
-                /* SHX */ 0x9e =>                                                   {self.ushx()},
-                /* SHY */ 0x9c =>                                                   {self.ushy()},
-                /* SKB */ 0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 =>                       {self.uskb()},
-                /* SLO */ 0x07 | 0x17 | 0x0F | 0x1f | 0x1b | 0x03 | 0x13 =>         {self.uslo(&opcode.mode)},
-                /* SRE */ 0x47 | 0x57 | 0x4F | 0x5f | 0x5b | 0x43 | 0x53 =>         {self.usre(&opcode.mode)},
-                /* TAS */ 0x9b =>                                                   {self.utas()},
-                /* XAA */ 0x8b =>                                                   {self.uxaa(&opcode.mode)},
-                
-                /* NOPs */ 0x1a | 0x3a | 0x5a | 0x7a | 0xda | 0xfa =>               {self.unop()},
-                /* NOPs */ 0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 
-                | 0x92 | 0xb2 | 0xd2 | 0xf2 =>                                      {self.unop()},
-                /* NOP read */ 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74 
-                | 0xd4 | 0xf4 | 0x0c | 0x1c| 0x3c | 0x5c | 0x7c | 0xdc | 0xfc =>    {self.unop_read(&opcode.mode)},
-            }
-
-            if program_counter_state == self.register_pc {
-                self.register_pc += (opcode.len - 1) as u16;
-            }
-
-            // Update the cycles
-            self.cycles += opcode.cycles as usize;
-
-            // Step through PPU 3 times per CPU Cycle
-            for _ in 0..opcode.cycles {
-                self.bus.ppu.borrow_mut().step();
-                self.bus.ppu.borrow_mut().step();
-                self.bus.ppu.borrow_mut().step();
-            }
-
-            if self.bus.ppu.borrow().nmi_triggered {
-                self.trigger_nmi();
-                self.bus.ppu.borrow_mut().nmi_triggered = false;
-            }
+            /* Unofficial */
+            /* AHX Absolute Y */ 0x9f =>                                        {self.uahx_ay()},
+            /* AHX  Indirect Y */ 0x93 =>                                       {self.uahx_iy()},
+            /* ALR */ 0x4b =>                                                   {self.ualr(&opcode.mode)},
+            /* ANC */ 0x0b | 0x2b =>                                            {self.uanc(&opcode.mode)},
+            /* ARR */ 0x6B =>                                                   {self.uarr(&opcode.mode)},
+            /* AXS */ 0xCB =>                                                   {self.uaxs(&opcode.mode)},
+            /* DCP */ 0xc7 | 0xd7 | 0xCF | 0xdF | 0xdb | 0xd3 | 0xc3 =>         {self.udcp(&opcode.mode)},
+            /* ISB */ 0xe7 | 0xf7 | 0xef | 0xff | 0xfb | 0xe3 | 0xf3 =>         {self.uisb(&opcode.mode)},
+            /* LAS */ 0xbb =>                                                   {self.ulas(&opcode.mode)},
+            /* LAX */ 0xa7 | 0xb7 | 0xaf | 0xbf | 0xa3 | 0xb3 =>                {self.ulax(&opcode.mode)},
+            /* LXA */ 0xab =>                                                   {self.ulxa(&opcode.mode)},
+            /* RLA */ 0x27 | 0x37 | 0x2F | 0x3F | 0x3b | 0x33 | 0x23 =>         {self.urla(&opcode.mode)},
+            /* RRA */ 0x67 | 0x77 | 0x6f | 0x7f | 0x7b | 0x63 | 0x73 =>         {self.urra(&opcode.mode)},
+            /* SAX */ 0x87 | 0x97 | 0x8f | 0x83 =>                              {self.usax(&opcode.mode)},
+            /* SBC */ 0xeb =>                                                   {self.usbc(&opcode.mode)},
+            /* SHX */ 0x9e =>                                                   {self.ushx()},
+            /* SHY */ 0x9c =>                                                   {self.ushy()},
+            /* SKB */ 0x80 | 0x82 | 0x89 | 0xc2 | 0xe2 =>                       {self.uskb()},
+            /* SLO */ 0x07 | 0x17 | 0x0F | 0x1f | 0x1b | 0x03 | 0x13 =>         {self.uslo(&opcode.mode)},
+            /* SRE */ 0x47 | 0x57 | 0x4F | 0x5f | 0x5b | 0x43 | 0x53 =>         {self.usre(&opcode.mode)},
+            /* TAS */ 0x9b =>                                                   {self.utas()},
+            /* XAA */ 0x8b =>                                                   {self.uxaa(&opcode.mode)},
+            
+            /* NOPs */ 0x1a | 0x3a | 0x5a | 0x7a | 0xda | 0xfa =>               {self.unop()},
+            /* NOPs */ 0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 
+            | 0x92 | 0xb2 | 0xd2 | 0xf2 =>                                      {self.unop()},
+            /* NOP read */ 0x04 | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74 
+            | 0xd4 | 0xf4 | 0x0c | 0x1c| 0x3c | 0x5c | 0x7c | 0xdc | 0xfc =>    {self.unop_read(&opcode.mode)},
         }
-    }
 
-    // Load a specific program and run from there
-    pub fn load_and_run(&mut self, program: Vec<u8>) {
-        self.load(program);
-        self.reset();
-        self.run();
+        if pc_before == self.register_pc {
+            self.register_pc += (opcode.len - 1) as u16;
+        }
+
+        // Update the cycles
+        self.cycles += opcode.cycles as usize;
+
+        // Step through PPU 3 times per CPU Cycle
+        for _ in 0..opcode.cycles {
+            self.bus.ppu.borrow_mut().step();
+            self.bus.ppu.borrow_mut().step();
+            self.bus.ppu.borrow_mut().step();
+        }
     }
 
     fn add_cycle(&mut self) {
@@ -288,7 +260,7 @@ impl CPU {
         self.bus.ppu.borrow_mut().step();
     }
 
-    fn trigger_nmi(&mut self) {
+    pub fn trigger_nmi(&mut self) {
         self.stack_push_16(self.register_pc);       // Push Program Counter to Stack
 
         let mut flags = self.flags.bits;                // Set up Flags for Stack
@@ -302,7 +274,6 @@ impl CPU {
         for _ in 0..7 {
             self.add_cycle();                               // Add 7 cycles for NMI
         }
-
     }
 
     /*                       */
