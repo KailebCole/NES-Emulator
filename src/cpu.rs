@@ -30,7 +30,7 @@ pub struct CPU {
     pub register_pc: u16,
     pub flags: Flags,
     pub bus: bus::Bus,
-    pub cycles: u64,
+    pub cycles: usize,
 }
 
 #[derive(Clone)]
@@ -258,13 +258,18 @@ impl CPU {
             }
 
             // Update the cycles
-            self.cycles += opcode.cycles as u64;
+            self.cycles += opcode.cycles as usize;
 
             // Step through PPU 3 times per CPU Cycle
             for _ in 0..opcode.cycles {
-                self.bus.ppu.step();
-                self.bus.ppu.step();
-                self.bus.ppu.step();
+                self.bus.ppu.borrow_mut().step();
+                self.bus.ppu.borrow_mut().step();
+                self.bus.ppu.borrow_mut().step();
+            }
+
+            if self.bus.ppu.borrow().nmi_triggered {
+                self.trigger_nmi();
+                self.bus.ppu.borrow_mut().nmi_triggered = false;
             }
         }
     }
@@ -278,9 +283,26 @@ impl CPU {
 
     fn add_cycle(&mut self) {
         self.cycles += 1;
-        self.bus.ppu.step();
-        self.bus.ppu.step();
-        self.bus.ppu.step();
+        self.bus.ppu.borrow_mut().step();
+        self.bus.ppu.borrow_mut().step();
+        self.bus.ppu.borrow_mut().step();
+    }
+
+    fn trigger_nmi(&mut self) {
+        self.stack_push_16(self.register_pc);       // Push Program Counter to Stack
+
+        let mut flags = self.flags.bits;                // Set up Flags for Stack
+        flags |= 0x20;                                      // Set Bit 5 when pushed to stack
+        flags &= 0x10;                                      // Clear Break Flag when pushed to stack
+        self.stack_push(flags);                       // Push Status Register to Stack
+        self.flags.set_int(true);                           // Set Interrupt Disable Flag
+
+        self.register_pc = self.mem_read_16(0xFFFA);  // Set Program Counter to NMI Vector
+
+        for _ in 0..7 {
+            self.add_cycle();                               // Add 7 cycles for NMI
+        }
+
     }
 
     /*                       */

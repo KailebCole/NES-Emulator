@@ -28,7 +28,9 @@
 // |_______________| $0000 |_______________|
 
 
-use crate::{cpu::Mem, rom};
+use std::{cell::RefCell, rc::Rc};
+
+use crate::{cpu::Mem, ppu::PPU, rom};
 
 const RAM: u16 = 0x0000;
 const RAM_MIRRORS_END: u16 = 0x1FFF;
@@ -37,14 +39,16 @@ const PPU_REGISTERS_MIRRORS_END: u16 = 0x3FFF;
 
 pub struct Bus {
     cpu_vram: [u8; 2048],
+    pub ppu: Rc<RefCell<PPU>>,
     rom: rom::Rom,
 }
 
 impl Bus {
-    pub fn new(rom: rom::Rom) -> Self {
+    pub fn new(ppu: Rc<RefCell<PPU>>, rom: rom::Rom) -> Self {
         Bus {
             cpu_vram: [0; 2048],
-            rom: rom,
+            ppu,
+            rom,
         }
     }
 
@@ -67,6 +71,12 @@ impl Mem for Bus {
                 let mirror_down_addr = addr & 0b00000111_11111111;
                 return self.cpu_vram[mirror_down_addr as usize]
             }
+            // PPU ($2000 - $3FFF)
+            PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => {
+                let ppu_addr = PPU_REGISTERS + (addr &0x7);
+                return self.ppu.borrow().read_register(ppu_addr)
+            },
+
             // APU and I/O Registers ($4000–$401F)
             0x4000..=0x401F => {
                 // Return 0xFF for unimplemented APU/I/O reads
@@ -90,10 +100,10 @@ impl Mem for Bus {
                 let mirror_down_addr = addr & 0b11111111111;
                 self.cpu_vram[mirror_down_addr as usize] = data;
             }
-            /*PPU_REGISTERS ..= PPU_REGISTERS_MIRRORS_END => {
-                let _mirror_down_addr = addr & 0b00100000_00000111;
-                todo!("PPU Is not supported yet")
-            }*/
+            PPU_REGISTERS ..= PPU_REGISTERS_MIRRORS_END => {
+                let ppu_addr = PPU_REGISTERS + (addr & 0x7); 
+                self.ppu.borrow_mut().write_register(ppu_addr, data);
+            }
             0x6000 => {
                 match data {
                     0x00 => {

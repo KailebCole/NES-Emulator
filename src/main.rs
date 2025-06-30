@@ -21,8 +21,12 @@ use sdl2::EventPump;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 use std::io::Write;
+
+use crate::ppu::PPU;
 
 #[macro_use]
 extern crate lazy_static;
@@ -52,7 +56,8 @@ fn main() {
 
     let rom = rom::Rom::new(&bytes).unwrap();
 
-    let bus = bus::Bus::new(rom);
+    let ppu = Rc::new(RefCell::new(PPU::new()));
+    let bus = bus::Bus::new(ppu.clone(), rom);
     let mut cpu = cpu::CPU::new(bus);
     cpu.reset();
 

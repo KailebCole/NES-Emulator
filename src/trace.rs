@@ -4,7 +4,7 @@ use crate::cpu::CPU;
 use crate::opcodes;
 use std::collections::HashMap;
 
-pub fn trace(cpu: &CPU) -> String {
+pub fn trace(cpu: &mut CPU) -> String {
     let ref opscodes: HashMap<u8, &'static opcodes::OPCode> = *opcodes::OPCodes_MAP;
 
     let code = cpu.mem_read(cpu.register_pc);
@@ -17,7 +17,7 @@ pub fn trace(cpu: &CPU) -> String {
     let (mem_addr, stored_value) = match ops.mode {
         AddressingMode::Immediate | AddressingMode::NoneAddressing => (0, 0),
         _ => {
-            let addr = cpu.get_absolute_address(&ops.mode, begin + 1);
+            let addr = cpu.get_absolute_address(&ops.mode, begin + 1, false);
             (addr, cpu.mem_read(addr))
         }
     };
