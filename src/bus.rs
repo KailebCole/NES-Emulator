@@ -104,6 +104,7 @@ impl Mem for Bus {
                 let ppu_addr = PPU_REGISTERS + (addr & 0x7); 
                 self.ppu.borrow_mut().write_register(ppu_addr, data);
             }
+            // Blargg Test Specific Addresses
             0x6000 => {
                 match data {
                     0x00 => {

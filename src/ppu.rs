@@ -8,6 +8,7 @@ pub struct PPU {
     pub cycles: usize,
     pub scanline: isize,
     pub frame: usize,
+    pub is_new_frame: bool,
 
     // Memory
     pub vram: [u8; 0x800],
@@ -24,6 +25,19 @@ pub struct PPU {
     pub addr: u16,
     pub addr_latch: bool,
     pub nmi_triggered: bool,
+
+    // Additional Registers for Scrolling
+    pub  vram_addr: u16,
+    pub temp_addr: u16,
+    pub fine_x: u8,
+    pub write_toggle: bool,
+
+    // Background Fetch Latches
+    pub next_tile_id: u8,
+    pub next_tile_attr: u8,
+    pub next_tile_lsb: u8,
+    pub next_tile_msb: u8,
+    
 }
 
 impl PPU {
@@ -32,6 +46,7 @@ impl PPU {
             cycles: 0,
             scanline: 0,
             frame: 0,
+            is_new_frame: false,
             vram: [0; 0x800],
             palette_table: [0; 32],
             oam_data: [0; 256],
@@ -44,6 +59,14 @@ impl PPU {
             addr: 0,
             addr_latch: false,
             nmi_triggered: false,
+            vram_addr: 0,
+            temp_addr: 0,
+            fine_x: 0,
+            write_toggle: false,
+            next_tile_id: 0,
+            next_tile_attr: 0,
+            next_tile_lsb: 0,
+            next_tile_msb: 0,
         }
     }
 
@@ -54,42 +77,104 @@ impl PPU {
         // Clear Framebuffer at the start of each frame
         if self.scanline == -1 && self.cycles == 1 {
             self.framebuffer.fill(0);
+            self.is_new_frame = true;
         }
 
-        // Handle Scanline when cycles overflow
+        // Every 8 PPU cycles, fetch data for background rendering
+        if self.scanline >= 0 && self.scanline < 240 && (self.cycles >= 1 && self.cycles <= 256) {
+            let cycle_in_tile = (self.cycles - 1) % 8;
+
+            match cycle_in_tile {
+                1 => { // Fetch tile ID
+                    let nametable_addr = 0x2000 | (self.vram_addr & 0x0FFF);
+                    self.next_tile_id = self.vram[nametable_addr as usize & 0x7FF];
+                }
+                3 => { // Fetch attribute byte
+                    let attr_addr = 0x23C0 | (self.vram_addr & 0x0C00) | ((self.vram_addr >> 4) & 0x38) | ((self.vram_addr >> 2) & 0x07);
+                    self.next_tile_attr = self.vram[attr_addr as usize & 0x7FF];
+                }
+                5 => { // Fetch low byte of pattern
+                    let fine_y = (self.vram_addr >> 12) & 0x7;
+                    let pattern_table_addr = ((self.control as u16 & 0x10) << 8) + (self.next_tile_id as u16 * 16) + fine_y;
+                    self.next_tile_lsb = self.vram[pattern_table_addr as usize & 0x7FF];
+                }
+                7 => { // Fetch high byte of pattern
+                    let fine_y = (self.vram_addr >> 12) & 0x7;
+                    let pattern_table_addr = ((self.control as u16 & 0x10) << 8) + (self.next_tile_id as u16 * 16) + fine_y + 8;
+                    self.next_tile_msb = self.vram[pattern_table_addr as usize & 0x7FF];
+                }
+                0 => { // Tile data shift: render one pixel column for current tile
+                    let fine_x = self.fine_x as usize;
+
+                    for bit in 0..8 {
+                        let bit_index = 7 - bit;
+                        let plane0 = (self.next_tile_lsb >> bit_index) & 1;
+                        let plane1 = (self.next_tile_msb >> bit_index) & 1;
+                        let color_idx = (plane1 << 1) | plane0;
+
+                        let cycle_base = if self.cycles >= 8 { self.cycles - 8 } else { 0 };
+                        let x = (cycle_base + bit) as usize;
+                        let y = self.scanline as usize;
+
+                        if x < WIDTH && y < HEIGHT {
+                            let offset = (y * WIDTH + x) * 3;
+
+                            // Force any non-zero color_idx to bright color
+                            if color_idx != 0 {
+                                self.framebuffer[offset] = 0xFF;          // R
+                                self.framebuffer[offset + 1] = 0x00;      // G
+                                self.framebuffer[offset + 2] = 0x00;      // B
+                            }
+                        }
+                    }
+
+                    self.increment_x();
+                }
+                _ => {}
+            }
+
+            // Increment X position
+            if self.cycles == 256 {
+                self.vram_addr = (self.vram_addr & 0xFBE0) | ((self.vram_addr + 1) & 0x041F);
+            }
+        }
+
+        // Finish scanline
         if self.cycles > 340 {
             self.cycles = 0;
             self.scanline += 1;
 
             if self.scanline > 261 {
-                self.scanline = -1; 
+                self.scanline = -1;
                 self.frame += 1;
             }
         }
 
-        // Start of VBlank
+        // Increments Y at the end of each scanline
+        if (self.scanline >= 0 && self.scanline < 240) || self.scanline == -1 {
+            if self.cycles == 256 {
+                self.increment_y();
+            }
+        }
+
+        // During pre-render or visible lines, reload horizontal bits at certain cycles
+        if self.scanline == -1 || (self.scanline >= 0 && self.scanline < 240) {
+            if self.cycles == 257 {
+                self.transfer_horizontal();
+            }
+        }
+
+        // VBlank begin
         if self.scanline == 241 && self.cycles == 1 {
-            self.status |= 0x80;    
-            if self.control & 0x80 != 0 { self.nmi_triggered = true; } 
+            self.status |= 0x80;
+            if self.control & 0x80 != 0 {
+                self.nmi_triggered = true;
+            }
         }
 
-        // End of VBlank
+        // VBlank end
         if self.scanline == -1 && self.cycles == 1 {
-            self.status &= 0x7F;   
-        }
-
-        // Draw Pixels
-        if self.scanline >= 0 && self.scanline < HEIGHT as isize
-            && self.cycles > 0 && self.cycles <= WIDTH as usize
-        {
-            let x = (self.cycles - 1) as usize;
-            let y = self.scanline as usize;
-            let offset = (y * WIDTH + x) * 3;
-
-            // Produce a horizontal color gradient: red increases with x, green with y
-            self.framebuffer[offset] = (x as u8).wrapping_mul(1);         // R channel
-            self.framebuffer[offset + 1] = (y as u8).wrapping_mul(1);     // G channel
-            self.framebuffer[offset + 2] = 0x80;                          // B channel fixed mid blue
+            self.status &= 0x7F;
         }
     }
 
@@ -100,8 +185,7 @@ impl PPU {
             0x2002 => self.status,
             0x2003 => self.oam_addr,
             0x2004 => self.oam_data[self.oam_addr as usize],
-            0x2005 => {
-                if !self.addr_latch { self.scroll.0 } else { self.scroll.1 }},
+            0x2005 => { if !self.addr_latch { self.scroll.0 } else { self.scroll.1 } },
             0x2007 => self.vram[self.addr as usize & 0x7FF],
             _ => 0,
         }
@@ -113,14 +197,23 @@ impl PPU {
             0x2003 => self.oam_addr = data,
             0x2004 => self.oam_data[self.oam_addr as usize] = data,
             0x2005 => {
-                if !self.addr_latch { self.scroll.0 = data; }
-                else { self.scroll.1 = data; }
-                self.addr_latch = !self.addr_latch;
+                if !self.write_toggle {
+                    self.fine_x = data & 0x07;
+                    self.temp_addr = (self.temp_addr & 0xFFE0) | ((data as u16) >> 3);
+                } else {
+                    self.temp_addr = (self.temp_addr & 0x8FFF) | (((data as u16) & 0x07) << 12);
+                    self.temp_addr = (self.temp_addr & 0xFC1F) | (((data as u16) & 0xF8) << 2);
+                }
+                self.write_toggle = !self.write_toggle;
             },
             0x2006 => {
-                if !self.addr_latch { self.addr = ((data as u16) << 8) | (self.addr & 0x00FF); }
-                else { self.addr = (self.addr & 0x00FF) | (data as u16); }
-                self.addr_latch = !self.addr_latch;
+                if !self.write_toggle {
+                    self.temp_addr = (self.temp_addr & 0x00FF) | (((data & 0x3F) as u16) << 8);
+                } else {
+                    self.temp_addr = (self.temp_addr & 0xFF00) | (data as u16);
+                    self.vram_addr = self.temp_addr;
+                }
+                self.write_toggle = !self.write_toggle;
             },
             0x2007 => {
                 self.vram[self.addr as usize & 0x7FF] = data;
@@ -132,6 +225,37 @@ impl PPU {
 
     fn vram_increment(&self) -> u16 {
         if self.control & 0b00000100 != 0 { 32 } else { 1 }
+    }
+
+    fn increment_x(&mut self) {
+        if (self.vram_addr & 0x001F) == 31 {
+            self.vram_addr &= !0x001F;           
+            self.vram_addr ^= 0x0400;            
+        } else {
+            self.vram_addr += 1;                 
+        }
+    }
+
+    fn increment_y(&mut self) {
+        if (self.vram_addr & 0x7000) != 0x7000 {
+            self.vram_addr += 0x1000;                           
+        } else {
+            self.vram_addr &= !0x7000;                         
+            let mut y = (self.vram_addr & 0x03E0) >> 5;     
+            if y == 29 {
+                y = 0;
+                self.vram_addr ^= 0x0800;                   
+            } else if y == 31 {
+                y = 0;                                       
+            } else {
+                y += 1;
+            }
+            self.vram_addr = (self.vram_addr & !0x03E0) | (y << 5);
+        }
+    }
+
+    fn transfer_horizontal(&mut self) {
+        self.vram_addr = (self.vram_addr & 0x7BE0) | (self.temp_addr & 0x041F);
     }
 }
 

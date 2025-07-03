@@ -15,6 +15,7 @@ use cpu::CPU;
 use cpu::Mem;
 use rand::Rng;
 use rom::Rom;
+use ppu::PPU;
 
 use sdl2::event::Event;
 use sdl2::EventPump;
@@ -26,8 +27,6 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::io::Write;
 use std::time::Instant;
-
-use crate::ppu::PPU;
 
 #[macro_use]
 extern crate lazy_static;
@@ -52,18 +51,20 @@ fn main() {
     let mut texture = creator.create_texture_target(PixelFormatEnum::RGB24, WIDTH as u32, HEIGHT as u32).unwrap();
 
     // Load Game
-    let bytes: Vec<u8> = std::fs::read("TESTS/02.nes").unwrap();
+    let bytes: Vec<u8> = std::fs::read("color_test.nes").unwrap();
     let rom = rom::Rom::new(&bytes).unwrap();
 
     let ppu = Rc::new(RefCell::new(PPU::new()));
     let bus = bus::Bus::new(ppu.clone(), rom);
     let mut cpu = cpu::CPU::new(bus);
-    cpu.reset();
 
     // Main Loop
+    cpu.reset();
     let frame_time = Duration::from_millis(16); // 60 FPS
+
     loop {
         let start = Instant::now();
+
         // Handle events
         for event in event_pump.poll_iter() {
             match event {
@@ -77,9 +78,11 @@ fn main() {
             }
         }
 
+        // Set up frame count
+        let frame_deadline = Instant::now() + frame_time;
+        
         // Step CPU n times, can be corrected with a timer later
-        // TODO: Implement proper timing
-        for _ in 0..50_000 {
+        while !ppu.borrow().is_new_frame && Instant::now() < frame_deadline {
             cpu.step();
             if cpu.bus.ppu.borrow().nmi_triggered {
                 cpu.trigger_nmi();
@@ -87,17 +90,15 @@ fn main() {
             }
         }
 
-        if ppu.borrow().scanline == 0 && ppu.borrow().cycles == 1 {
-            println!("New frame {}", ppu.borrow().frame);
-        }   
-
-        // On New Frame, Update SDL
-        if ppu.borrow().scanline == -1 {
+        // On New Frame, Update SDL graphics
+        if ppu.borrow().is_new_frame {
             texture.update(None, &ppu.borrow().framebuffer, WIDTH * 3).unwrap();
             canvas.copy(&texture, None, None).unwrap();
             canvas.present();
+            ppu.borrow_mut().is_new_frame = false;
         }
 
+        // Sleep to maintain frame rate
         let elapsed_time = start.elapsed();
         if elapsed_time < frame_time {
             ::std::thread::sleep(frame_time - elapsed_time);
