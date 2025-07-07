@@ -74,7 +74,7 @@ impl PPU {
 
     }
 
-    pub fn step(&mut self, nes: &mut NES) {
+    pub fn step(&mut self) {
         // Increment Cycles
         self.cycles += 1;
 

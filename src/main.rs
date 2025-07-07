@@ -9,10 +9,8 @@ pub mod nes;
 pub mod opcodes;
 pub mod ppu;
 pub mod rom;
-pub mod trace;
 
 use cpu::CPU;
-use cpu::Mem;
 use rand::Rng;
 use rom::Rom;
 use ppu::PPU;
@@ -57,6 +55,7 @@ fn main() {
     let rom = rom::Rom::new(&bytes).unwrap();
 
     let mut nes = NES::new(rom);
+
     // Main Loop
     nes.reset();
     let frame_time = Duration::from_millis(16); // 60 FPS
@@ -84,7 +83,7 @@ fn main() {
         while !nes.ppu.is_new_frame && Instant::now() < frame_deadline {
             nes.step();
             if nes.ppu.nmi_triggered {
-                nes.cpu.trigger_nmi();
+                nes.cpu.trigger_nmi(&mut nes.ppu, &mut nes.bus);
                 nes.ppu.nmi_triggered = false;
             }
         }

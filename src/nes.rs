@@ -16,7 +16,7 @@ impl NES {
     }
 
     pub fn reset(&mut self) {
-        let pc_start = self.bus.mem_read_16(0xFFFC);
+        let pc_start = self.bus.mem_read_16(&mut self.ppu, 0xFFFC);
         self.cpu.reset(pc_start);
         self.ppu.reset();
     }
