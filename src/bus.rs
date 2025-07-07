@@ -63,7 +63,44 @@ impl Bus {
         match addr {
             0x0000..=0x1FFF => self.ram[(addr as usize) & 0x7FF] = data,
             0x2000..=0x3FFF => ppu.write_register(0x2000 + (addr & 0x7), data),
-            0x8000..=0xFFFF => panic!("Attempted to write to ROM at {:04X}", addr),
+            // Blargg Test Specific Addresses
+            0x6000 => {
+                match data {
+                    0x00 => {
+                        println!("blargg test PASSED!");
+                        std::process::exit(0); // graceful exit
+                    }
+                    0x80 => {
+                        println!("Running")
+                    }
+                    fail_code => {
+                        println!("blargg test FAILED with code {:02X}", fail_code);
+                        // Optionally read $6004..$60XX and print failure message
+                        let mut msg = Vec::new();
+                        let mut addr = 0x6004;
+                        loop {
+                            let byte = self.mem_read(ppu, addr);
+                            if byte == 0 || addr > 0x60FF { break; }
+                            msg.push(byte);
+                            addr += 1;
+                        }
+                        if let Ok(message) = String::from_utf8(msg) {
+                            println!("Failure reason: {}", message);
+                        }
+                        std::process::exit(1);
+                    }
+                }
+            }
+            0x6004..=0x7000 => {
+                // Only print printable ASCII characters, skip nulls and control chars
+                if data.is_ascii_graphic() || data == b' ' {
+                    print!("{}", data as char);
+                } else if data == b'\n' || data == b'\r' {
+                    print!("{}", data as char);
+                }
+                // Do not print \x00 or other non-printable bytes
+            }
+            // 0x8000..=0xFFFF => panic!("Attempted to write to ROM at {:04X}", addr),
             _ => {},
         }
     }

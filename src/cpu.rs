@@ -204,17 +204,17 @@ impl CPU {
 
         // Step through PPU 3 times per CPU Cycle
         for _ in 0..opcode.cycles {
-            ppu.step();
-            ppu.step();
-            ppu.step();
+            // ppu.step();
+            // ppu.step();
+            // ppu.step();
         }
     }
 
     fn add_cycle(&mut self, ppu: &mut PPU) {
         self.cycles += 1;
-        ppu.step();
-        ppu.step();
-        ppu.step();
+        // ppu.step();
+        // ppu.step();
+        // ppu.step();
     }
 
     pub fn trigger_nmi(&mut self, ppu: &mut PPU, bus: &mut Bus) {
