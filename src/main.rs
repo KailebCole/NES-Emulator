@@ -2,12 +2,13 @@
 #![cfg_attr(debug_assertions, allow(unused_imports))]
 
 pub mod apu;
-pub mod rom;
+pub mod bus;
 pub mod cpu;
 pub mod gamepad;
 pub mod nes;
 pub mod opcodes;
 pub mod ppu;
+pub mod rom;
 pub mod trace;
 
 use cpu::CPU;

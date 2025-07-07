@@ -17,7 +17,7 @@
 // Processor Status:    Represents 7 status flags
 
 use std::collections::HashMap;
-use crate::{nes::NES, opcodes::{self, OPCode}};
+use crate::{bus::Bus, nes::NES, opcodes::{self, OPCode}, ppu::PPU};
 
 const STACK: u16 = 0x0100;
 const STACK_RESET: u8 = 0xFD;
@@ -88,12 +88,12 @@ impl CPU {
     }
 
     // Decode and execute program file
-    pub fn step(&mut self, nes: &mut NES) {
+    pub fn step(&mut self, bus: &mut Bus, ppu: &mut PPU) {
         let ref opcodes: HashMap<u8, &'static opcodes::OPCode> = *opcodes::OPCodes_MAP;
 
         // FETCH
-        let code = nes.mem_read(self.register_pc);
-        self.register_pc = self.register_pc.wrapping_add(1); 
+        let code = bus.mem_read(self.register_pc);
+        self.register_pc = self.register_pc.wrapping_add(1);
         let pc_before = self.register_pc;
 
         // DECODE
