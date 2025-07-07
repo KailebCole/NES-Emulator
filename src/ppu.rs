@@ -2,7 +2,7 @@
 
 use sdl2::pixels::Color;
 
-use crate::{cpu, WIDTH, HEIGHT};
+use crate::{cpu, nes::{self, NES}, HEIGHT, WIDTH};
 
 pub struct PPU {
     pub cycles: usize,
@@ -70,6 +70,10 @@ impl PPU {
         }
     }
 
+    pub fn reset(&self) {
+
+    }
+
     pub fn step(&mut self) {
         // Increment Cycles
         self.cycles += 1;
@@ -104,8 +108,6 @@ impl PPU {
                     self.next_tile_msb = self.vram[pattern_table_addr as usize & 0x7FF];
                 }
                 0 => { // Tile data shift: render one pixel column for current tile
-                    let fine_x = self.fine_x as usize;
-
                     for bit in 0..8 {
                         let bit_index = 7 - bit;
                         let plane0 = (self.next_tile_lsb >> bit_index) & 1;

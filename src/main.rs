@@ -3,16 +3,14 @@
 
 pub mod apu;
 pub mod bus;
-pub mod rom;
 pub mod cpu;
 pub mod gamepad;
+pub mod nes;
 pub mod opcodes;
 pub mod ppu;
-pub mod trace;
+pub mod rom;
 
-use bus::Bus;
 use cpu::CPU;
-use cpu::Mem;
 use rand::Rng;
 use rom::Rom;
 use ppu::PPU;
@@ -27,6 +25,8 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::io::Write;
 use std::time::Instant;
+
+use crate::nes::NES;
 
 #[macro_use]
 extern crate lazy_static;
@@ -51,15 +51,13 @@ fn main() {
     let mut texture = creator.create_texture_target(PixelFormatEnum::RGB24, WIDTH as u32, HEIGHT as u32).unwrap();
 
     // Load Game
-    let bytes: Vec<u8> = std::fs::read("color_test.nes").unwrap();
+    let bytes: Vec<u8> = std::fs::read("all_instrs.nes").unwrap();
     let rom = rom::Rom::new(&bytes).unwrap();
 
-    let ppu = Rc::new(RefCell::new(PPU::new()));
-    let bus = bus::Bus::new(ppu.clone(), rom);
-    let mut cpu = cpu::CPU::new(bus);
+    let mut nes = NES::new(rom);
 
     // Main Loop
-    cpu.reset();
+    nes.reset();
     let frame_time = Duration::from_millis(16); // 60 FPS
 
     loop {
@@ -82,20 +80,20 @@ fn main() {
         let frame_deadline = Instant::now() + frame_time;
         
         // Step CPU n times, can be corrected with a timer later
-        while !ppu.borrow().is_new_frame && Instant::now() < frame_deadline {
-            cpu.step();
-            if cpu.bus.ppu.borrow().nmi_triggered {
-                cpu.trigger_nmi();
-                cpu.bus.ppu.borrow_mut().nmi_triggered = false;
+        while !nes.ppu.is_new_frame && Instant::now() < frame_deadline {
+            nes.step();
+            if nes.ppu.nmi_triggered {
+                nes.cpu.trigger_nmi(&mut nes.ppu, &mut nes.bus);
+                nes.ppu.nmi_triggered = false;
             }
         }
 
         // On New Frame, Update SDL graphics
-        if ppu.borrow().is_new_frame {
-            texture.update(None, &ppu.borrow().framebuffer, WIDTH * 3).unwrap();
+        if nes.ppu.is_new_frame {
+            texture.update(None, &nes.ppu.framebuffer, WIDTH * 3).unwrap();
             canvas.copy(&texture, None, None).unwrap();
             canvas.present();
-            ppu.borrow_mut().is_new_frame = false;
+            nes.ppu.is_new_frame = false;
         }
 
         // Sleep to maintain frame rate

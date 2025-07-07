@@ -29,9 +29,8 @@
 
 
 use core::panic;
-use std::{cell::RefCell, rc::Rc};
 
-use crate::{cpu::Mem, ppu::PPU, rom};
+use crate::{rom, ppu::PPU};
 
 const RAM: u16 = 0x0000;
 const RAM_MIRRORS_END: u16 = 0x1FFF;
@@ -39,71 +38,31 @@ const PPU_REGISTERS: u16 = 0x2000;
 const PPU_REGISTERS_MIRRORS_END: u16 = 0x3FFF;
 
 pub struct Bus {
-    cpu_vram: [u8; 2048],
-    pub ppu: Rc<RefCell<PPU>>,
+    pub ram: [u8; 0x800],
     rom: rom::Rom,
 }
 
 impl Bus {
-    pub fn new(ppu: Rc<RefCell<PPU>>, rom: rom::Rom) -> Self {
+    pub fn new(rom: rom::Rom) -> Self {
         Bus {
-            cpu_vram: [0; 2048],
-            ppu,
+            ram: [0; 0x800],
             rom,
         }
     }
 
-    fn read_prom(&self, mut addr: u16) -> u8 {
-        addr -= 0x8000;
-
-        if self.rom.p_rom.len() == 0x4000 && addr >= 0x4000 {
-            // Mirror if needed
-            addr = addr % 0x4000;
-        }
-
-        return self.rom.p_rom[addr as usize];
-    }
-}
-
-impl Mem for Bus {
-    fn mem_read(&self, addr: u16) -> u8 {
+    pub fn mem_read(&self, ppu: &PPU, addr: u16) -> u8 {
         match addr {
-            RAM ..= RAM_MIRRORS_END => {
-                let mirror_down_addr = addr & 0x07FF;
-                return self.cpu_vram[mirror_down_addr as usize]
-            }
-            // PPU ($2000 - $3FFF)
-            PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => {
-                let ppu_addr = PPU_REGISTERS + (addr &0x7);
-                return self.ppu.borrow().read_register(ppu_addr)
-            },
-
-            // APU and I/O Registers ($4000–$401F)
-            0x4000..=0x401F => {
-                // Return 0xFF for unimplemented APU/I/O reads
-                return 0xFF;
-            }
-
-            // ROM reads ($8000–$FFFF)
+            0x0000..=0x1FFF => self.ram[(addr as usize) & 0x7FF],
+            0x2000..=0x3FFF => ppu.read_register(0x2000 + (addr & 0x7)),
             0x8000..=0xFFFF => self.read_prom(addr),
-
-            // All other regions (PPU registers, expansion ROM)
-            _ => {
-                return 0xFF;
-            }
+            _ => 0xFF,
         }
     }
 
-    fn mem_write(&mut self, addr: u16, data: u8) {
+    pub fn mem_write(&mut self, ppu: &mut PPU, addr: u16, data: u8) {
         match addr {
-            RAM ..= RAM_MIRRORS_END => {
-                let mirror_down_addr = addr & 0x07FF;
-                self.cpu_vram[mirror_down_addr as usize] = data;
-            }
-            PPU_REGISTERS ..= PPU_REGISTERS_MIRRORS_END => {
-                let ppu_addr = PPU_REGISTERS + (addr & 0x7); 
-                self.ppu.borrow_mut().write_register(ppu_addr, data);
-            }
+            0x0000..=0x1FFF => self.ram[(addr as usize) & 0x7FF] = data,
+            0x2000..=0x3FFF => ppu.write_register(0x2000 + (addr & 0x7), data),
             // Blargg Test Specific Addresses
             0x6000 => {
                 match data {
@@ -120,7 +79,7 @@ impl Mem for Bus {
                         let mut msg = Vec::new();
                         let mut addr = 0x6004;
                         loop {
-                            let byte = self.mem_read(addr);
+                            let byte = self.mem_read(ppu, addr);
                             if byte == 0 || addr > 0x60FF { break; }
                             msg.push(byte);
                             addr += 1;
@@ -141,10 +100,22 @@ impl Mem for Bus {
                 }
                 // Do not print \x00 or other non-printable bytes
             }
-            0x8000..=0xFFFF => {panic!("Attempted to write to ROM at address {:04X}", addr);}
-            _ => {
-
-            }
+            // 0x8000..=0xFFFF => panic!("Attempted to write to ROM at {:04X}", addr),
+            _ => {},
         }
+    }
+
+    pub fn mem_read_16(&self, ppu: &PPU, addr: u16) -> u16 {
+        let lo = self.mem_read(ppu, addr) as u16;
+        let hi = self.mem_read(ppu, addr + 1) as u16;
+        (hi << 8) | lo
+    }
+
+    fn read_prom(&self, addr: u16) -> u8 {
+        let mut addr = addr - 0x8000;
+        if self.rom.p_rom.len() == 0x4000 && addr >= 0x4000 {
+            addr %= 0x4000;
+        }
+        self.rom.p_rom[addr as usize]
     }
 }
