@@ -2,7 +2,7 @@
 
 use sdl2::pixels::Color;
 
-use crate::{cpu, WIDTH, HEIGHT};
+use crate::{cpu, nes::{self, NES}, HEIGHT, WIDTH};
 
 pub struct PPU {
     pub cycles: usize,
@@ -70,7 +70,7 @@ impl PPU {
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self, nes: &mut NES) {
         // Increment Cycles
         self.cycles += 1;
 

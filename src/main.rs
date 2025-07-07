@@ -2,15 +2,14 @@
 #![cfg_attr(debug_assertions, allow(unused_imports))]
 
 pub mod apu;
-pub mod bus;
 pub mod rom;
 pub mod cpu;
 pub mod gamepad;
+pub mod nes;
 pub mod opcodes;
 pub mod ppu;
 pub mod trace;
 
-use bus::Bus;
 use cpu::CPU;
 use cpu::Mem;
 use rand::Rng;
@@ -27,6 +26,8 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::io::Write;
 use std::time::Instant;
+
+use crate::nes::NES;
 
 #[macro_use]
 extern crate lazy_static;
@@ -54,12 +55,9 @@ fn main() {
     let bytes: Vec<u8> = std::fs::read("color_test.nes").unwrap();
     let rom = rom::Rom::new(&bytes).unwrap();
 
-    let ppu = Rc::new(RefCell::new(PPU::new()));
-    let bus = bus::Bus::new(ppu.clone(), rom);
-    let mut cpu = cpu::CPU::new(bus);
-
+    let mut nes = NES::new(rom);
     // Main Loop
-    cpu.reset();
+    nes.reset();
     let frame_time = Duration::from_millis(16); // 60 FPS
 
     loop {
@@ -82,20 +80,20 @@ fn main() {
         let frame_deadline = Instant::now() + frame_time;
         
         // Step CPU n times, can be corrected with a timer later
-        while !ppu.borrow().is_new_frame && Instant::now() < frame_deadline {
-            cpu.step();
-            if cpu.bus.ppu.borrow().nmi_triggered {
-                cpu.trigger_nmi();
-                cpu.bus.ppu.borrow_mut().nmi_triggered = false;
+        while !nes.ppu.is_new_frame && Instant::now() < frame_deadline {
+            nes.step();
+            if nes.ppu.nmi_triggered {
+                nes.cpu.trigger_nmi();
+                nes.ppu.nmi_triggered = false;
             }
         }
 
         // On New Frame, Update SDL graphics
-        if ppu.borrow().is_new_frame {
-            texture.update(None, &ppu.borrow().framebuffer, WIDTH * 3).unwrap();
+        if nes.ppu.is_new_frame {
+            texture.update(None, &nes.ppu.framebuffer, WIDTH * 3).unwrap();
             canvas.copy(&texture, None, None).unwrap();
             canvas.present();
-            ppu.borrow_mut().is_new_frame = false;
+            nes.ppu.is_new_frame = false;
         }
 
         // Sleep to maintain frame rate
