@@ -204,17 +204,17 @@ impl CPU {
 
         // Step through PPU 3 times per CPU Cycle
         for _ in 0..opcode.cycles {
-            // ppu.step();
-            // ppu.step();
-            // ppu.step();
+            ppu.step(bus);
+            ppu.step(bus);
+            ppu.step(bus);
         }
     }
 
-    fn add_cycle(&mut self, ppu: &mut PPU) {
+    fn add_cycle(&mut self, bus: &mut Bus, ppu: &mut PPU) {
         self.cycles += 1;
-        // ppu.step();
-        // ppu.step();
-        // ppu.step();
+        ppu.step(bus);
+        ppu.step(bus);
+        ppu.step(bus);
     }
 
     pub fn trigger_nmi(&mut self, ppu: &mut PPU, bus: &mut Bus) {
@@ -229,7 +229,7 @@ impl CPU {
         self.register_pc = bus.mem_read_16(ppu, 0xFFFA);  // Set Program Counter to NMI Vector
 
         for _ in 0..7 {
-            self.add_cycle(ppu);                               // Add 7 cycles for NMI
+            self.add_cycle(bus, ppu);                               // Add 7 cycles for NMI
         }
     }
 
@@ -342,13 +342,13 @@ impl CPU {
             AddressingMode::AbsoluteX => {
                 let base = self.mem_read_16(bus, ppu,   addr);
                 let addr = base.wrapping_add(self.register_x as u16);
-                if cycle_page && (base & 0xFF00) != (addr & 0xFF00) { self.add_cycle(ppu); }
+                if cycle_page && (base & 0xFF00) != (addr & 0xFF00) { self.add_cycle(bus, ppu); }
                 addr
             }
             AddressingMode::AbsoluteY => {
                 let base = self.mem_read_16(bus, ppu,   addr);
                 let addr = base.wrapping_add(self.register_y as u16);
-                if cycle_page && (base & 0xFF00) != (addr & 0xFF00) { self.add_cycle(ppu); }
+                if cycle_page && (base & 0xFF00) != (addr & 0xFF00) { self.add_cycle(bus, ppu); }
                 addr
             }
 
@@ -367,7 +367,7 @@ impl CPU {
                 let hi = self.mem_read(bus, ppu,  (base as u8).wrapping_add(1) as u16);
                 let deref_base = (hi as u16) << 8 | lo as u16;
                 let deref = deref_base.wrapping_add(self.register_y as u16);
-                if cycle_page && (deref_base & 0xFF00) != (deref & 0xFF00) { self.add_cycle(ppu); }
+                if cycle_page && (deref_base & 0xFF00) != (deref & 0xFF00) { self.add_cycle(bus, ppu); }
                 deref
             }
 

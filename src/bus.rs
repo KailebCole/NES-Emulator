@@ -50,10 +50,10 @@ impl Bus {
         }
     }
 
-    pub fn mem_read(&self, ppu: &PPU, addr: u16) -> u8 {
+    pub fn mem_read(&self, ppu: &mut PPU, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.ram[(addr as usize) & 0x7FF],
-            0x2000..=0x3FFF => ppu.read_register(0x2000 + (addr & 0x7)),
+            0x2000..=0x3FFF => ppu.read_register(self, 0x2000 + (addr & 0x7)),
             0x8000..=0xFFFF => self.read_prom(addr),
             _ => 0xFF,
         }
@@ -62,7 +62,7 @@ impl Bus {
     pub fn mem_write(&mut self, ppu: &mut PPU, addr: u16, data: u8) {
         match addr {
             0x0000..=0x1FFF => self.ram[(addr as usize) & 0x7FF] = data,
-            0x2000..=0x3FFF => ppu.write_register(0x2000 + (addr & 0x7), data),
+            0x2000..=0x3FFF => ppu.write_register(self, 0x2000 + (addr & 0x7), data),
             // Blargg Test Specific Addresses
             0x6000 => {
                 match data {
@@ -105,10 +105,27 @@ impl Bus {
         }
     }
 
-    pub fn mem_read_16(&self, ppu: &PPU, addr: u16) -> u16 {
+    pub fn mem_read_16(&self, ppu: &mut PPU, addr: u16) -> u16 {
         let lo = self.mem_read(ppu, addr) as u16;
         let hi = self.mem_read(ppu, addr + 1) as u16;
         (hi << 8) | lo
+    }
+
+    pub fn read_chr(&self, addr: u16) -> u8 {
+        let index = addr as usize;
+        if !self.rom.c_rom.is_empty() {
+            self.rom.c_rom[index % self.rom.c_rom.len()]
+        } 
+        else {
+            self.rom.chr_ram[index % self.rom.chr_ram.len()]
+        }
+    }
+
+    pub fn write_chr(&mut self, addr: u16, data: u8) {
+        let index = addr as usize;
+        if self.rom.c_rom.is_empty() {
+            self.rom.chr_ram[index] = data;
+        }
     }
 
     fn read_prom(&self, addr: u16) -> u8 {

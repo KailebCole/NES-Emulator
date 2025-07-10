@@ -16,17 +16,13 @@ pub enum Mirroring {
 pub struct Rom {
     pub p_rom: Vec<u8>,
     pub c_rom: Vec<u8>,
+    pub chr_ram: Vec<u8>,
     pub mapper: u8,
     pub mirroring: Mirroring,
 }
 
 impl Rom {
     pub fn new(raw: &Vec<u8>) -> Result<Rom, String> {
-        // First 4 bytes should be the NES Tag
-        if &raw[0..4] != NES_TAG {
-            return Err("File is not in iNES file format".to_string());
-        }
-
         let mapper = (raw[6] >> 4) | (raw[7] & 0xF0);
 
         // Detect NES 2.0
@@ -77,6 +73,13 @@ impl Rom {
             return Err(format!("CHR-ROM size ({chr_rom_size} bytes) exceeds file length."));
         }
 
+        let use_chr_ram = chr_rom_size == 0;
+        let chr_ram = if use_chr_ram {
+            vec![0; CROM_PAGE_SIZE]
+        } else {
+            Vec::new() 
+        };
+
         Ok(Rom {
             p_rom: raw[header_size..prg_end].to_vec(),
             c_rom: if chr_rom_size > 0 {
@@ -84,6 +87,7 @@ impl Rom {
             } else {
                 Vec::new()
             },
+            chr_ram,
             mapper,
             mirroring,
         })
